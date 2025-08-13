@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger, InternalServerErrorException } from '@nestjs/common';
 import * as amqp from 'amqplib';
 import { MessageStatus } from '../common/enums/message-status.enum';
 
@@ -16,7 +16,7 @@ export class RabbitMQService implements OnModuleInit {
 
   async onModuleInit() {
     this.logger.log('Iniciando conexão com o RabbitMQ...');
-    
+
     this.connection = await amqp.connect({
       protocol: 'amqps',
       hostname: process.env.RABBITMQ_HOST,
@@ -37,34 +37,40 @@ export class RabbitMQService implements OnModuleInit {
   }
 
   public async publishToInput(messageId: string, messageContent: string) {
-    const payload = JSON.stringify({ messageId, messageContent });
-
-    this.logger.log(`Publicando na fila de entrada: ${messageId}`);
-
-    await this.channel.sendToQueue(this.inputQueue, Buffer.from(payload), { persistent: true });
+    try {
+      const payload = JSON.stringify({ messageId, messageContent });
+      this.logger.log(`Publicando na fila de entrada: ${messageId}`);
+      await this.channel.sendToQueue(this.inputQueue, Buffer.from(payload), { persistent: true });
+    } catch (error) {
+      this.logger.error(`Erro ao publicar na fila de entrada: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Falha ao publicar na fila de entrada');
+    }
   }
 
   public getStatus(messageId: string): string | undefined {
     return this.statusMap.get(messageId);
   }
 
-
   private async publishToStatus(messageId: string, status: string) {
-    const payload = JSON.stringify({ messageId, status });
-
-    this.logger.log(`Publicando status: ${messageId} -> ${status}`);
-
-    await this.channel.sendToQueue(this.statusQueue, Buffer.from(payload), { persistent: true });
-    this.statusMap.set(messageId, status);
+    try {
+      const payload = JSON.stringify({ messageId, status });
+      this.logger.log(`Publicando status: ${messageId} -> ${status}`);
+      await this.channel.sendToQueue(this.statusQueue, Buffer.from(payload), { persistent: true });
+      this.statusMap.set(messageId, status);
+    } catch (error) {
+      this.logger.error(`Erro ao publicar status na fila: ${error.message}`, error.stack);
+    }
   }
 
-  private async consumeInput() {
+  private consumeInput() {
     this.channel.consume(this.inputQueue, async (msg) => {
-      if (msg) {
-        const { messageId } = JSON.parse(msg.content.toString());
+      if (!msg) return;
 
+      try {
+        const { messageId } = JSON.parse(msg.content.toString());
         this.logger.log(`Mensagem recebida para processamento: ${messageId}`);
 
+        // Simula processamento
         await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
 
         const random = Math.floor(Math.random() * 10) + 1;
@@ -72,7 +78,12 @@ export class RabbitMQService implements OnModuleInit {
 
         await this.publishToStatus(messageId, status);
 
-        this.channel.ack(msg);
+        this.channel!.ack(msg);
+      } catch (error) {
+        this.logger.error(`Erro ao processar mensagem: ${error.message}`, error.stack);
+
+        // Decide se rejeita ou reenvia a mensagem para a fila (requeue false para não repetir)
+        this.channel!.nack(msg, false, false);
       }
     });
   }

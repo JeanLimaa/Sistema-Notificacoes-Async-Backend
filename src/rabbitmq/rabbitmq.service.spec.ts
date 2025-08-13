@@ -58,6 +58,6 @@ describe('RabbitMQService', () => {
 
     it('should throw error if sendToQueue fails', async () => {
         channelMock.sendToQueue.mockImplementation(() => { throw new Error('Failed to send'); });
-        await expect(service.publishToInput('id789', 'Fail message')).rejects.toThrow('Failed to send');
+        await expect(service.publishToInput('id789', 'Fail message')).rejects.toThrow('Falha ao publicar na fila de entrada');
     });
 });

@@ -18,7 +18,7 @@ export class RabbitMQService implements OnModuleInit {
     this.logger.log('Iniciando conexão com o RabbitMQ...');
 
     this.connection = await amqp.connect({
-      protocol: 'amqps',
+      protocol: process.env.RABBITMQ_PROTOCOL || 'amqp',
       hostname: process.env.RABBITMQ_HOST,
       port: parseInt(process.env.RABBITMQ_PORT) || 5671,
       username: process.env.RABBITMQ_USER,
